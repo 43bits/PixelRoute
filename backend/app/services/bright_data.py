@@ -183,7 +183,7 @@ class BrightDataService:
 
                 async with session.get(url, headers=self.headers, params=params) as response:
                     response.raise_for_status()
-                    return await response.json()
+                    return await response.json(content_type=None)
 
             except aiohttp.ClientError as e:
                 logger.error(f"Failed to get job status: {e}")
