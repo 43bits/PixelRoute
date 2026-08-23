@@ -1,6 +1,6 @@
 [build]
 builder = "NIXPACKS"
-buildCommand = "pip install -r requirements.txt && prisma generate"
+buildCommand = "pip install -r requirements.txt && pip install -r requirements-ml.txt --no-deps --ignore-requires-python || true && npm install && python -m prisma generate"
 
 [deploy]
 startCommand = "uvicorn app.main:app --host 0.0.0.0 --port $PORT"

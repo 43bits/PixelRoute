@@ -12,7 +12,8 @@ Users must create one in Scraper Studio and paste the collector_id into our app.
 
 import aiohttp
 import asyncio
-from typing import List, Dict, Any, Optional
+import json
+from typing import Any, List, Dict, Optional
 from loguru import logger
 from tenacity import retry, stop_after_attempt, wait_exponential
 
@@ -170,11 +171,13 @@ class BrightDataService:
     # ── Job status ────────────────────────────────────────────────────────────
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
-    async def get_job_status(self, snapshot_id: str) -> Dict[str, Any]:
+    async def get_job_status(self, snapshot_id: str) -> Any:
         """
         GET /dca/dataset?id=<snapshot_id>
 
-        Returns status info. When ready, also returns the data array.
+        Bright Data returns application/jsonl — one JSON per line.
+          ""           → still running
+          1+ JSON lines → records (complete)
         """
         async with aiohttp.ClientSession() as session:
             try:
@@ -183,7 +186,25 @@ class BrightDataService:
 
                 async with session.get(url, headers=self.headers, params=params) as response:
                     response.raise_for_status()
-                    return await response.json(content_type=None)
+                    text = await response.text()
+
+                    if not text or not text.strip():
+                        return ""  # still running
+
+                    records = []
+                    for line in text.strip().splitlines():
+                        line = line.strip()
+                        if line:
+                            try:
+                                records.append(json.loads(line))
+                            except json.JSONDecodeError:
+                                pass
+
+                    if len(records) == 0:
+                        return ""       # nothing parseable yet
+                    if len(records) == 1:
+                        return records[0]   # single dict
+                    return records          # list of dicts
 
             except aiohttp.ClientError as e:
                 logger.error(f"Failed to get job status: {e}")
@@ -191,43 +212,16 @@ class BrightDataService:
 
     # ── Fetch results ─────────────────────────────────────────────────────────
 
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
-    async def get_results(
-        self, snapshot_id: str, format: str = "json"
-    ) -> List[Dict[str, Any]]:
-        """
-        GET /dca/dataset?id=<snapshot_id>&format=json
-
-        Returns the array of scraped records.
-        Batch results are retained for 16 days.
-        """
+    async def get_results(self, snapshot_id: str, format: str = "json") -> List[Dict[str, Any]]:
+        """Parse JSONL and return list of records."""
         logger.info(f"Fetching results for snapshot {snapshot_id}")
-
-        async with aiohttp.ClientSession() as session:
-            try:
-                url = f"{self.api_url}/dca/dataset"
-                params = {"id": snapshot_id, "format": format}
-
-                async with session.get(url, headers=self.headers, params=params) as response:
-                    response.raise_for_status()
-                    results = await response.json()
-
-                    # Result is a list of records
-                    if isinstance(results, list):
-                        logger.success(f"Retrieved {len(results)} records")
-                        return results
-
-                    # Some responses wrap in {"data": [...]}
-                    if isinstance(results, dict) and "data" in results:
-                        data = results["data"]
-                        logger.success(f"Retrieved {len(data)} records")
-                        return data
-
-                    return []
-
-            except aiohttp.ClientError as e:
-                logger.error(f"Failed to get results: {e}")
-                raise
+        raw = await self.get_job_status(snapshot_id)
+        if isinstance(raw, list):
+            logger.success(f"Retrieved {len(raw)} records")
+            return raw
+        if isinstance(raw, dict):
+            return [raw]
+        return []
 
     # ── Poll until done ───────────────────────────────────────────────────────
 

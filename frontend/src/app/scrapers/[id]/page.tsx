@@ -14,6 +14,7 @@ import {
   RefreshCw,
   Globe,
   Layers,
+  Eye,
 } from 'lucide-react';
 import Link from 'next/link';
 import { formatDistanceToNow } from 'date-fns';
@@ -218,6 +219,7 @@ export default function ScraperDetailPage() {
                     <th className="pb-2 font-medium">Progress</th>
                     <th className="pb-2 font-medium">Duration</th>
                     <th className="pb-2 font-medium">Started</th>
+                    <th className="pb-2 font-medium">Results</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
@@ -245,6 +247,17 @@ export default function ScraperDetailPage() {
                         {job.startedAt
                           ? formatDistanceToNow(new Date(job.startedAt), { addSuffix: true })
                           : '—'}
+                      </td>
+                      <td className="py-3">
+                        {job.status === 'COMPLETED' && job.itemsScraped > 0 ? (
+                          <Link
+                            href={`/scrapers/${scraper.id}/results`}
+                            className="flex items-center space-x-1 text-xs text-blue-600 hover:text-blue-700 font-medium"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                            <span>View</span>
+                          </Link>
+                        ) : '—'}
                       </td>
                     </tr>
                   ))}

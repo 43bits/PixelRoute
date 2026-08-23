@@ -1,0 +1,15 @@
+# ── ML / Visual (optional — skipped on Railway free tier if OOM) ──────────────
+# Install with: pip install -r requirements-ml.txt
+# Railway: attempted during build but failures are ignored (|| true)
+
+# Vector search
+faiss-cpu==1.7.4
+qdrant-client==1.7.0
+
+# Vision model (heavy — ~2GB)
+torch>=2.0.0
+transformers>=4.30.0
+safetensors>=0.4.0
+
+# Screenshot capture
+playwright>=1.40.0
