@@ -1,0 +1,195 @@
+// Prisma schema for VisualQA-Scraper
+
+generator client {
+  provider = "prisma-client-py"
+  interface = "asyncio"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Scraper configuration
+model Scraper {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  
+  // Bright Data scraper ID
+  brightDataScraperId String?
+  
+  // Target URLs
+  targetUrls  String[]
+  
+  // Field definitions
+  fields      ScraperField[]
+  
+  // Status
+  status      ScraperStatus @default(DRAFT)
+  isActive    Boolean       @default(false)
+  
+  // Self-healing config
+  autoHeal    Boolean       @default(true)
+  lastHealed  DateTime?
+  healCount   Int           @default(0)
+  
+  // Metadata
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  
+  // Relations
+  jobs        ScraperJob[]
+  results     ScraperResult[]
+  
+  @@index([status])
+  @@index([isActive])
+}
+
+// Field definitions for scrapers
+model ScraperField {
+  id          String   @id @default(cuid())
+  scraperId   String
+  scraper     Scraper  @relation(fields: [scraperId], references: [id], onDelete: Cascade)
+  
+  name        String
+  description String   // Plain language description for visual identification
+  fieldType   FieldType
+  
+  // CSS selector (can change during self-healing)
+  selector    String?
+  
+  // Visual characteristics (for PixelRAG matching)
+  visualHints Json?    // { position: "top-right", color: "red", near: "product title" }
+  
+  isRequired  Boolean  @default(false)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@index([scraperId])
+}
+
+// Scraper execution jobs
+model ScraperJob {
+  id          String   @id @default(cuid())
+  scraperId   String
+  scraper     Scraper  @relation(fields: [scraperId], references: [id], onDelete: Cascade)
+  
+  // Bright Data job ID
+  brightDataJobId String?
+  
+  // Job configuration
+  urls        String[]
+  
+  // Status
+  status      JobStatus @default(PENDING)
+  progress    Int       @default(0) // 0-100
+  
+  // Results
+  itemsScraped Int      @default(0)
+  errorCount   Int      @default(0)
+  
+  // Timing
+  startedAt   DateTime?
+  completedAt DateTime?
+  duration    Int?      // seconds
+  
+  // Error tracking
+  error       String?
+  
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  
+  // Relations
+  results     ScraperResult[]
+  
+  @@index([scraperId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+// Scraped data with visual content
+model ScraperResult {
+  id          String   @id @default(cuid())
+  scraperId   String
+  scraper     Scraper  @relation(fields: [scraperId], references: [id], onDelete: Cascade)
+  jobId       String
+  job         ScraperJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  
+  // Source
+  url         String
+  scrapedAt   DateTime @default(now())
+  
+  // Extracted data
+  data        Json     // Structured field data
+  
+  // Visual content
+  screenshotUrl String?
+  tilesPath     String?  // Path to screenshot tiles
+  
+  // PixelRAG embedding reference
+  embeddingId   String?
+  
+  // Metadata
+  metadata    Json?    // HTML title, description, etc.
+  
+  createdAt   DateTime @default(now())
+  
+  @@index([scraperId])
+  @@index([jobId])
+  @@index([scrapedAt])
+  @@index([embeddingId])
+}
+
+// Visual queries for chat interface
+model VisualQuery {
+  id          String   @id @default(cuid())
+  
+  // Query text
+  question    String
+  
+  // Optional: filter by scraper
+  scraperId   String?
+  
+  // Search results
+  results     Json     // Array of { resultId, score, snippet }
+  resultCount Int      @default(0)
+  
+  // Response
+  answer      String?
+  
+  // Timing
+  duration    Int?     // milliseconds
+  
+  createdAt   DateTime @default(now())
+  
+  @@index([scraperId])
+  @@index([createdAt])
+}
+
+// Enums
+enum ScraperStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  ARCHIVED
+  ERROR
+}
+
+enum JobStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum FieldType {
+  TEXT
+  NUMBER
+  URL
+  IMAGE
+  DATE
+  VISUAL    // Charts, tables, infographics
+}

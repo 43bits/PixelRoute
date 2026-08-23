@@ -1,0 +1,16 @@
+{
+  "name": "visualqa-scraper-backend",
+  "version": "1.0.0",
+  "description": "FastAPI backend with PixelRAG integration",
+  "scripts": {
+    "dev": "uvicorn app.main:app --reload --port 8000",
+    "start": "uvicorn app.main:app --host 0.0.0.0 --port $PORT",
+    "prisma:generate": "prisma generate",
+    "prisma:push": "prisma db push",
+    "prisma:studio": "prisma studio"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.8.1",
+    "prisma": "^5.8.1"
+  }
+}
