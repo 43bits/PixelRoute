@@ -1,4 +1,4 @@
-# VisualQA-Scraper 🔍
+# PIXELrOUTE 🔍
 
 > **Self-healing web scraper with visual RAG capabilities**
 > 
