@@ -3,8 +3,63 @@
  */
 
 import axios, { AxiosInstance } from 'axios';
+import type {
+  Scraper,
+  ScraperField,
+  ScraperJob,
+  VisualQuery,
+  HealthStatus,
+} from '@/types';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
+// ── Response shapes ────────────────────────────────────────────────────────────
+
+export interface ListScrapersResponse {
+  scrapers: Scraper[];
+  total: number;
+  skip: number;
+  limit: number;
+}
+
+export interface ListJobsResponse {
+  jobs: ScraperJob[];
+  total: number;
+}
+
+export interface JobResultsResponse {
+  results: Record<string, unknown>[];
+  total: number;
+}
+
+export interface RunScraperResponse {
+  jobId: string;
+  status: string;
+  message: string;
+}
+
+export interface HealResponse {
+  success: boolean;
+  message: string;
+  healCount: number;
+}
+
+export interface DeleteResponse {
+  success: boolean;
+  message: string;
+}
+
+export interface SyncResponse {
+  synced: number;
+  message: string;
+}
+
+export interface QueryHistoryResponse {
+  queries: VisualQuery[];
+  total: number;
+}
+
+// ── API client ─────────────────────────────────────────────────────────────────
 
 class ApiClient {
   private client: AxiosInstance;
@@ -12,13 +67,10 @@ class ApiClient {
   constructor() {
     this.client = axios.create({
       baseURL: `${API_URL}/api`,
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
       timeout: 30000,
     });
 
-    // Response interceptor for error handling
     this.client.interceptors.response.use(
       (response) => response,
       (error) => {
@@ -30,25 +82,31 @@ class ApiClient {
     );
   }
 
-  // Health
-  async healthCheck() {
-    const { data } = await this.client.get('/health');
+  // ── Health ──────────────────────────────────────────────────────────────────
+
+  async healthCheck(): Promise<HealthStatus> {
+    const { data } = await this.client.get<HealthStatus>('/health');
     return data;
   }
 
-  async detailedHealthCheck() {
-    const { data } = await this.client.get('/health/detailed');
+  async detailedHealthCheck(): Promise<HealthStatus> {
+    const { data } = await this.client.get<HealthStatus>('/health/detailed');
     return data;
   }
 
-  // Scrapers
-  async listScrapers(params?: { skip?: number; limit?: number; status?: string }) {
-    const { data } = await this.client.get('/scrapers', { params });
+  // ── Scrapers ────────────────────────────────────────────────────────────────
+
+  async listScrapers(params?: {
+    skip?: number;
+    limit?: number;
+    status?: string;
+  }): Promise<ListScrapersResponse> {
+    const { data } = await this.client.get<ListScrapersResponse>('/scrapers', { params });
     return data;
   }
 
-  async getScraper(id: string) {
-    const { data } = await this.client.get(`/scrapers/${id}`);
+  async getScraper(id: string): Promise<Scraper> {
+    const { data } = await this.client.get<Scraper>(`/scrapers/${id}`);
     return data;
   }
 
@@ -61,12 +119,12 @@ class ApiClient {
       description: string;
       fieldType?: string;
       selector?: string;
-      visualHints?: any;
+      visualHints?: Record<string, unknown>;
       isRequired?: boolean;
     }>;
     autoHeal?: boolean;
-  }) {
-    const { data } = await this.client.post('/scrapers', scraperData);
+  }): Promise<Scraper> {
+    const { data } = await this.client.post<Scraper>('/scrapers', scraperData);
     return data;
   }
 
@@ -76,58 +134,75 @@ class ApiClient {
       name?: string;
       description?: string;
       targetUrls?: string[];
-      fields?: any[];
+      fields?: Partial<ScraperField>[];
       isActive?: boolean;
       autoHeal?: boolean;
     }
-  ) {
-    const { data } = await this.client.patch(`/scrapers/${id}`, updates);
+  ): Promise<Scraper> {
+    const { data } = await this.client.patch<Scraper>(`/scrapers/${id}`, updates);
     return data;
   }
 
-  async deleteScraper(id: string) {
-    const { data } = await this.client.delete(`/scrapers/${id}`);
+  async deleteScraper(id: string): Promise<DeleteResponse> {
+    const { data } = await this.client.delete<DeleteResponse>(`/scrapers/${id}`);
     return data;
   }
 
-  async runScraper(id: string, urls?: string[]) {
-    const { data } = await this.client.post(`/scrapers/${id}/run`, { urls });
+  async runScraper(id: string, urls?: string[]): Promise<RunScraperResponse> {
+    const { data } = await this.client.post<RunScraperResponse>(
+      `/scrapers/${id}/run`,
+      { urls }
+    );
     return data;
   }
 
-  async triggerSelfHeal(id: string) {
-    const { data } = await this.client.post(`/scrapers/${id}/heal`);
+  async triggerSelfHeal(id: string): Promise<HealResponse> {
+    const { data } = await this.client.post<HealResponse>(`/scrapers/${id}/heal`);
     return data;
   }
 
-  // Jobs
-  async getJobStatus(jobId: string) {
-    const { data } = await this.client.get(`/jobs/${jobId}`);
+  // ── Jobs ────────────────────────────────────────────────────────────────────
+
+  async getJobStatus(jobId: string): Promise<ScraperJob> {
+    const { data } = await this.client.get<ScraperJob>(`/jobs/${jobId}`);
     return data;
   }
 
-  async getJobResults(jobId: string, params?: { skip?: number; limit?: number }) {
-    const { data } = await this.client.get(`/jobs/${jobId}/results`, { params });
+  async getJobResults(
+    jobId: string,
+    params?: { skip?: number; limit?: number }
+  ): Promise<JobResultsResponse> {
+    const { data } = await this.client.get<JobResultsResponse>(
+      `/jobs/${jobId}/results`,
+      { params }
+    );
     return data;
   }
 
-  async syncJobResults(jobId: string) {
-    const { data } = await this.client.post(`/jobs/${jobId}/sync`);
+  async syncJobResults(jobId: string): Promise<SyncResponse> {
+    const { data } = await this.client.post<SyncResponse>(`/jobs/${jobId}/sync`);
     return data;
   }
 
-  async listScraperJobs(scraperId: string, params?: { skip?: number; limit?: number }) {
-    const { data } = await this.client.get(`/jobs/scraper/${scraperId}`, { params });
+  async listScraperJobs(
+    scraperId: string,
+    params?: { skip?: number; limit?: number }
+  ): Promise<ListJobsResponse> {
+    const { data } = await this.client.get<ListJobsResponse>(
+      `/jobs/scraper/${scraperId}`,
+      { params }
+    );
     return data;
   }
 
-  // Query
+  // ── Query ───────────────────────────────────────────────────────────────────
+
   async queryVisual(params: {
     question: string;
     scraperId?: string;
     nResults?: number;
-  }) {
-    const { data } = await this.client.post('/query/visual', params);
+  }): Promise<VisualQuery> {
+    const { data } = await this.client.post<VisualQuery>('/query/visual', params);
     return data;
   }
 
@@ -135,8 +210,8 @@ class ApiClient {
     question: string;
     scraperId?: string;
     limit?: number;
-  }) {
-    const { data } = await this.client.post('/query/text', params);
+  }): Promise<VisualQuery> {
+    const { data } = await this.client.post<VisualQuery>('/query/text', params);
     return data;
   }
 
@@ -144,13 +219,16 @@ class ApiClient {
     skip?: number;
     limit?: number;
     scraperId?: string;
-  }) {
-    const { data } = await this.client.get('/query/history', { params });
+  }): Promise<QueryHistoryResponse> {
+    const { data } = await this.client.get<QueryHistoryResponse>(
+      '/query/history',
+      { params }
+    );
     return data;
   }
 
-  async getQuery(queryId: string) {
-    const { data } = await this.client.get(`/query/${queryId}`);
+  async getQuery(queryId: string): Promise<VisualQuery> {
+    const { data } = await this.client.get<VisualQuery>(`/query/${queryId}`);
     return data;
   }
 }

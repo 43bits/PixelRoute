@@ -6,6 +6,7 @@ import { useMutation } from '@tanstack/react-query';
 import { Plus, Trash2, ArrowLeft, Loader2, AlertCircle } from 'lucide-react';
 import Link from 'next/link';
 import api from '@/lib/api';
+import type { Scraper } from '@/types';
 
 interface FieldDraft {
   name: string;
@@ -29,13 +30,14 @@ export default function NewScraperPage() {
   ]);
   const [error, setError] = useState('');
 
-  const createMutation = useMutation({
+  const createMutation = useMutation<Scraper, Error, Parameters<typeof api.createScraper>[0]>({
     mutationFn: api.createScraper.bind(api),
     onSuccess: (data) => {
       router.push(`/scrapers/${data.id}`);
     },
-    onError: (err: any) => {
-      setError(err?.response?.data?.detail || err?.message || 'Failed to create scraper');
+    onError: (err) => {
+      const axiosErr = err as { response?: { data?: { detail?: string } }; message?: string };
+      setError(axiosErr?.response?.data?.detail || axiosErr?.message || 'Failed to create scraper');
     },
   });
 
