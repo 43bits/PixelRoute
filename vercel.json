@@ -3,7 +3,6 @@
   "outputDirectory": "frontend/.next",
   "framework": "nextjs",
   "env": {
-    
   },
   "build": {
     
