@@ -1,5 +1,5 @@
 {
-  "name": "visualqa-scraper-backend",
+  "name": "PixelRoute-backend",
   "version": "1.0.0",
   "description": "FastAPI backend with PixelRAG integration",
   "scripts": {

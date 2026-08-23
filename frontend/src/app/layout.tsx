@@ -6,7 +6,7 @@ import { Providers } from '@/components/providers';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'VisualQA-Scraper',
+  title: 'PixelRoute',
   description: 'Self-healing web scraper with visual RAG capabilities',
 };
 

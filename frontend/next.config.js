@@ -1,14 +1,29 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+
+  // Allow product images from Amazon CDN and any domain
   images: {
-    domains: ['localhost'],
-    remotePatterns: [],
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: '**.media-amazon.com',
+      },
+      {
+        protocol: 'https',
+        hostname: '**.amazon.com',
+      },
+      {
+        protocol: 'https',
+        hostname: '**',
+      },
+    ],
   },
-  // NOTE: rewrites are intentionally removed.
-  // The frontend calls the backend directly via NEXT_PUBLIC_API_URL at runtime.
-  // A rewrite destination that depends on a runtime env var is invalid at build time
-  // and causes "Invalid rewrite found" on Vercel.
+
+  // Surface the Railway backend URL to the browser
+  env: {
+    NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000',
+  },
 };
 
 module.exports = nextConfig;

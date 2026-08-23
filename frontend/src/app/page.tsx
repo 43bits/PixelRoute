@@ -13,7 +13,7 @@ export default function HomePage() {
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center space-x-2">
               <Bot className="w-8 h-8 text-primary-600" />
-              <span className="font-bold text-xl">VisualQA-Scraper</span>
+              <span className="font-bold text-xl">PixelRoute</span>
             </div>
             <div className="flex items-center space-x-4">
               <Link

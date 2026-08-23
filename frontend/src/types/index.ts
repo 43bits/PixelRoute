@@ -1,5 +1,5 @@
 /**
- * TypeScript types for VisualQA-Scraper
+ * TypeScript types for PixelRoute
  */
 
 export interface Scraper {

@@ -10,7 +10,7 @@
 
 ## 🎯 What It Does
 
-VisualQA-Scraper goes beyond traditional text scraping - it **understands visual content**:
+PixelRoute goes beyond traditional text scraping - it **understands visual content**:
 
 - 📊 **Extracts data from charts and infographics** that text parsers miss
 - 🔄 **Self-heals when websites change** using Bright Data's intelligent scrapers

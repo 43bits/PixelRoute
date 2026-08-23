@@ -1,5 +1,5 @@
 /**
- * API client for VisualQA-Scraper backend
+ * API client for PixelRoute backend
  */
 
 import axios, { AxiosInstance } from 'axios';

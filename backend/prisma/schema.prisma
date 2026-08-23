@@ -1,4 +1,4 @@
-// Prisma schema for VisualQA-Scraper
+// Prisma schema for PixelRoute
 
 generator client {
   provider = "prisma-client-py"

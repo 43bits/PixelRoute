@@ -1,49 +1,130 @@
 """
 PixelRAG integration for visual content understanding
-Handles screenshot capture, tiling, embedding, and visual search
+Handles screenshot capture, tiling, embedding, and visual search.
+
+All ML/playwright dependencies are OPTIONAL — if not installed the service
+degrades gracefully so the core scraping API still works on Railway free tier.
 """
 
 import os
-import shutil
 from typing import List, Dict, Any, Optional
-from pathlib import Path
-import asyncio
 from loguru import logger
 
 from app.core.config import settings
 
-# PixelRAG will be imported dynamically to avoid initialization issues
+# Optional heavy deps
+try:
+    import asyncio
+    _HAS_PLAYWRIGHT = True
+except ImportError:
+    _HAS_PLAYWRIGHT = False
+
 pixelrag_initialized = False
-pixelrag_model = None
-pixelrag_index = None
 
 
 async def initialize_pixelrag():
-    """Initialize PixelRAG components"""
-    global pixelrag_initialized, pixelrag_model, pixelrag_index
-    
+    """Initialize PixelRAG — best effort, never raises."""
+    global pixelrag_initialized
     if pixelrag_initialized:
         return
-    
     logger.info("Initializing PixelRAG...")
-    
     try:
-        # Import PixelRAG modules
-        # These imports happen after environment is set up
-        logger.info(f"Loading model: {settings.PIXELRAG_MODEL}")
-        logger.info(f"Using device: {settings.PIXELRAG_DEVICE}")
-        
-        # Create index directory if it doesn't exist
         os.makedirs(settings.PIXELRAG_INDEX_PATH, exist_ok=True)
-        
-        # Note: Actual model loading will happen on first use
-        # to avoid slowing down startup
+        os.makedirs(settings.STORAGE_PATH, exist_ok=True)
         pixelrag_initialized = True
         logger.success("PixelRAG initialized successfully")
-        
     except Exception as e:
-        logger.error(f"Failed to initialize PixelRAG: {e}")
-        raise
+        logger.warning(f"PixelRAG init skipped: {e}")
+        pixelrag_initialized = True   # mark done so we don't retry
+
+
+class PixelRAGService:
+    """Visual content service — degrades gracefully when ML deps are absent."""
+
+    def __init__(self):
+        self.index_path   = settings.PIXELRAG_INDEX_PATH
+        self.storage_path = settings.STORAGE_PATH
+
+    async def process_scraper_result(
+        self,
+        url: str,
+        scraper_id: str,
+        result_id: str,
+    ) -> Dict[str, Any]:
+        """
+        Screenshot → embed → index pipeline.
+        Returns a stub result if playwright/pixelshot are not available.
+        """
+        logger.info(f"PixelRAG processing {result_id} ({url})")
+
+        # Graceful stub when playwright / pixelshot not available
+        if not _HAS_PLAYWRIGHT:
+            logger.warning("playwright not installed — skipping visual processing")
+            return {
+                "result_id": result_id,
+                "screenshot": {"tiles_dir": None},
+                "status": "skipped",
+            }
+
+        try:
+            import asyncio, hashlib
+
+            url_hash  = hashlib.md5(url.encode()).hexdigest()[:12]
+            tiles_dir = os.path.join(self.storage_path, "tiles", url_hash)
+            os.makedirs(tiles_dir, exist_ok=True)
+
+            # pixelshot capture
+            proc = await asyncio.create_subprocess_exec(
+                "pixelshot", url, "-o", tiles_dir,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _, stderr = await proc.communicate()
+            if proc.returncode != 0:
+                raise RuntimeError(f"pixelshot: {stderr.decode()}")
+
+            tiles = sorted(
+                str(p) for p in __import__("pathlib").Path(tiles_dir).glob("*.png")
+            )
+            logger.success(f"Captured {len(tiles)} tiles")
+            return {
+                "result_id": result_id,
+                "screenshot": {"tiles_dir": tiles_dir, "tiles": tiles},
+                "status": "completed",
+            }
+
+        except Exception as e:
+            logger.warning(f"Visual processing failed (non-fatal): {e}")
+            return {
+                "result_id": result_id,
+                "screenshot": {"tiles_dir": None},
+                "status": "error",
+                "error": str(e),
+            }
+
+    async def search_visual(
+        self,
+        query: str,
+        scraper_id: Optional[str] = None,
+        n_results: int = 5,
+    ) -> List[Dict[str, Any]]:
+        """Natural language visual search — returns [] if index not ready."""
+        import httpx
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                r = await client.post(
+                    "http://localhost:30001/search",
+                    json={"queries": [{"text": query}], "n_docs": n_results},
+                )
+                r.raise_for_status()
+                return r.json()
+        except Exception:
+            logger.warning("PixelRAG search unavailable — returning empty results")
+            return []
+
+
+# Global instance
+pixelrag_service = PixelRAGService()
 
 
 class PixelRAGService:

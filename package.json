@@ -1,5 +1,5 @@
 {
-  "name": "visualqa-scraper",
+  "name": "PixelRoute",
   "version": "1.0.0",
   "description": "Self-healing web scraper with visual RAG - Bright Data + PixelRAG integration",
   "private": true,

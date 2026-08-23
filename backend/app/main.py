@@ -1,5 +1,5 @@
 """
-VisualQA-Scraper Backend
+PixelRoute Backend
 FastAPI application with Bright Data and PixelRAG integration
 """
 
@@ -19,7 +19,7 @@ from app.api import scrapers, jobs, query, health
 async def lifespan(app: FastAPI):
     """Startup and shutdown events"""
     # Startup
-    logger.info("Starting VisualQA-Scraper API...")
+    logger.info("Starting PixelRoute API...")
     
     # Connect to database
     await prisma.connect()
@@ -45,7 +45,7 @@ async def lifespan(app: FastAPI):
 
 # Create FastAPI app
 app = FastAPI(
-    title="VisualQA-Scraper API",
+    title="PixelRoute API",
     description="Self-healing web scraper with visual RAG capabilities",
     version="1.0.0",
     lifespan=lifespan,
@@ -54,9 +54,11 @@ app = FastAPI(
 )
 
 # CORS middleware
+# allow_origin_regex covers all Vercel preview/production URLs automatically
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -86,7 +88,7 @@ async def global_exception_handler(request, exc):
 @app.get("/")
 async def root():
     return {
-        "name": "VisualQA-Scraper API",
+        "name": "PixelRoute API",
         "version": "1.0.0",
         "status": "running",
         "docs": "/docs",

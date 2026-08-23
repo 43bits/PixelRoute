@@ -1,7 +1,7 @@
 {
-  "name": "visualqa-scraper-frontend",
+  "name": "PixelRoute-frontend",
   "version": "1.0.0",
-  "description": "Next.js frontend for VisualQA-Scraper",
+  "description": "Next.js frontend for PixelRoute",
   "private": true,
   "scripts": {
     "dev": "next dev",
