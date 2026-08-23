@@ -123,6 +123,7 @@ class ApiClient {
       isRequired?: boolean;
     }>;
     autoHeal?: boolean;
+    collectorId?: string;
   }): Promise<Scraper> {
     const { data } = await this.client.post<Scraper>('/scrapers', scraperData);
     return data;

@@ -60,7 +60,7 @@ model ScraperField {
   selector    String?
   
   // Visual characteristics (for PixelRAG matching)
-  visualHints Json?    // { position: "top-right", color: "red", near: "product title" }
+  visualHints Json?    @default("{}")  // { position: "top-right", color: "red", near: "product title" }
   
   isRequired  Boolean  @default(false)
   

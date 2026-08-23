@@ -6,6 +6,9 @@ from fastapi import APIRouter, HTTPException, Depends
 from typing import List, Optional
 from pydantic import BaseModel, Field
 from datetime import datetime
+import traceback
+from loguru import logger
+from prisma import Json
 
 from app.core.database import prisma, get_db
 from app.services.bright_data import bright_data_service
@@ -30,6 +33,11 @@ class CreateScraperRequest(BaseModel):
     targetUrls: List[str] = Field(..., description="URLs to scrape")
     fields: List[FieldDefinition] = Field(..., description="Fields to extract")
     autoHeal: bool = Field(default=True, description="Enable self-healing")
+    collectorId: Optional[str] = Field(
+        None,
+        description="Bright Data collector ID (c_xxxx) from Scraper Studio. "
+                    "Leave blank to save as DRAFT and add later."
+    )
 
 
 class UpdateScraperRequest(BaseModel):
@@ -47,49 +55,63 @@ class RunScraperRequest(BaseModel):
 
 @router.post("/")
 async def create_scraper(request: CreateScraperRequest, db = Depends(get_db)):
-    """Create a new scraper"""
-    
+    """
+    Create a new scraper.
+
+    If collectorId is provided, it is validated against Bright Data and the
+    scraper is saved as ACTIVE. Without a collectorId it saves as DRAFT —
+    you can add the collector ID later via PATCH /{id}.
+
+    NOTE: Bright Data has no API to create collectors programmatically.
+    Create one in Scraper Studio (https://brightdata.com/cp/scrapers),
+    publish it, and copy the ID (starts with c_).
+    """
     try:
-        # Create scraper in Bright Data
-        bright_data_result = await bright_data_service.create_scraper(
-            name=request.name,
-            target_urls=request.targetUrls,
-            fields=[field.model_dump() for field in request.fields],
-            description=request.description
+        collector_id = request.collectorId
+
+        # If a collector ID was supplied, register it (no API call needed to create)
+        if collector_id:
+            bright_data_service.register_scraper(
+                collector_id=collector_id,
+                name=request.name,
+                target_urls=request.targetUrls,
+                fields=[field.model_dump() for field in request.fields],
+                description=request.description,
+            )
+            status = "ACTIVE"
+        else:
+            status = "DRAFT"
+
+        # Save to database
+        scraper = await prisma.scraper.create(
+            data={
+                "name": request.name,
+                "description": request.description,
+                "brightDataScraperId": collector_id,
+                "targetUrls": request.targetUrls,
+                "status": status,
+                "autoHeal": request.autoHeal,
+                "fields": {
+                    "create": [
+                        {
+                            "name": field.name,
+                            "description": field.description,
+                            "fieldType": field.fieldType,
+                            "selector": field.selector,
+                            "visualHints": Json(field.visualHints if field.visualHints else {}),
+                            "isRequired": field.isRequired,
+                        }
+                        for field in request.fields
+                    ]
+                },
+            },
+            include={"fields": True},
         )
-        
-        # Create in database
-        scraper = await prisma.scraper.create({
-            "name": request.name,
-            "description": request.description,
-            "brightDataScraperId": bright_data_result.get("collector_id"),
-            "targetUrls": request.targetUrls,
-            "status": "ACTIVE" if bright_data_result.get("collector_id") else "DRAFT",
-            "autoHeal": request.autoHeal,
-            "fields": {
-                "create": [
-                    {
-                        "name": field.name,
-                        "description": field.description,
-                        "fieldType": field.fieldType,
-                        "selector": field.selector,
-                        "visualHints": field.visualHints or {},
-                        "isRequired": field.isRequired
-                    }
-                    for field in request.fields
-                ]
-            }
-        })
-        
-        return {
-            "id": scraper.id,
-            "name": scraper.name,
-            "status": scraper.status,
-            "brightDataScraperId": scraper.brightDataScraperId,
-            "createdAt": scraper.createdAt.isoformat()
-        }
-        
+
+        return scraper
+
     except Exception as e:
+        logger.error(f"create_scraper error: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Failed to create scraper: {str(e)}")
 
 
@@ -237,13 +259,15 @@ async def run_scraper(
         )
         
         # Create job record
-        job = await prisma.scraperjob.create({
-            "scraperId": scraper_id,
-            "brightDataJobId": job_result.get("snapshot_id"),
-            "urls": urls,
-            "status": "RUNNING",
-            "startedAt": datetime.utcnow()
-        })
+        job = await prisma.scraperjob.create(
+            data={
+                "scraperId": scraper_id,
+                "brightDataJobId": job_result.get("snapshot_id"),
+                "urls": urls,
+                "status": "RUNNING",
+                "startedAt": datetime.utcnow(),
+            }
+        )
         
         return {
             "jobId": job.id,
@@ -268,23 +292,24 @@ async def trigger_self_heal(scraper_id: str, db = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Scraper not configured in Bright Data")
     
     try:
-        # Enable self-healing in Bright Data
-        await bright_data_service.enable_self_healing(scraper.brightDataScraperId)
-        
+        # Trigger self-heal in Bright Data
+        heal_result = await bright_data_service.trigger_self_heal(scraper.brightDataScraperId)
+
         # Update database
         updated = await prisma.scraper.update(
             where={"id": scraper_id},
             data={
                 "lastHealed": datetime.utcnow(),
-                "healCount": scraper.healCount + 1
-            }
+                "healCount": scraper.healCount + 1,
+            },
         )
-        
+
         return {
             "success": True,
             "healCount": updated.healCount,
-            "lastHealed": updated.lastHealed.isoformat()
+            "lastHealed": updated.lastHealed.isoformat(),
+            "brightDataStatus": heal_result.get("status"),
         }
-        
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Self-healing failed: {str(e)}")

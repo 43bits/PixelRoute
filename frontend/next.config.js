@@ -1,21 +1,14 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  swcMinify: true,
   images: {
     domains: ['localhost'],
+    remotePatterns: [],
   },
-  env: {
-    NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000',
-  },
-  async rewrites() {
-    return [
-      {
-        source: '/api/:path*',
-        destination: `${process.env.NEXT_PUBLIC_API_URL}/api/:path*`,
-      },
-    ];
-  },
+  // NOTE: rewrites are intentionally removed.
+  // The frontend calls the backend directly via NEXT_PUBLIC_API_URL at runtime.
+  // A rewrite destination that depends on a runtime env var is invalid at build time
+  // and causes "Invalid rewrite found" on Vercel.
 };
 
 module.exports = nextConfig;

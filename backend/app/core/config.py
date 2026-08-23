@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     
     # Bright Data
     BRIGHT_DATA_API_TOKEN: str
-    BRIGHT_DATA_CUSTOMER_ID: str
+    BRIGHT_DATA_COLLECTOR_ID: str = ""
     BRIGHT_DATA_API_URL: str = "https://api.brightdata.com"
     
     # PixelRAG

@@ -4,8 +4,7 @@
   "description": "Self-healing web scraper with visual RAG - Bright Data + PixelRAG integration",
   "private": true,
   "workspaces": [
-    "backend",
-    "frontend"
+    "backend"
   ],
   "scripts": {
     "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",

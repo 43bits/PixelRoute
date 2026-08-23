@@ -1,6 +1,13 @@
 """
 Bright Data Scraper Studio API integration
-Handles scraper creation, execution, and self-healing
+
+Real API flow:
+  1. Scrapers (collectors) are created in Bright Data UI/CLI → gives you a collector_id (c_xxxx)
+  2. POST /dca/trigger?collector=<collector_id>  → returns collection_id (j_xxxx)
+  3. GET  /dca/dataset?id=<collection_id>        → returns results when ready
+
+There is NO API endpoint to programmatically create a collector.
+Users must create one in Scraper Studio and paste the collector_id into our app.
 """
 
 import aiohttp
@@ -14,295 +21,288 @@ from app.core.config import settings
 
 class BrightDataService:
     """Service for interacting with Bright Data Scraper Studio"""
-    
+
     def __init__(self):
-        self.api_url = settings.BRIGHT_DATA_API_URL
+        self.api_url = settings.BRIGHT_DATA_API_URL  # https://api.brightdata.com
         self.api_token = settings.BRIGHT_DATA_API_TOKEN
-        self.customer_id = settings.BRIGHT_DATA_CUSTOMER_ID
         self.headers = {
             "Authorization": f"Bearer {self.api_token}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
         }
-    
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
-    async def create_scraper(
+
+    # ── Scraper "creation" ────────────────────────────────────────────────────
+    # Bright Data has no API endpoint to create a collector.
+    # We store the user-supplied collector_id and validate it exists.
+
+    async def validate_collector(self, collector_id: str) -> Dict[str, Any]:
+        """
+        Validate that a collector_id exists and is accessible.
+        Tries a dry-run trigger with no URLs to confirm access.
+
+        Returns basic info dict, raises on 401/404.
+        """
+        logger.info(f"Validating collector: {collector_id}")
+
+        # Attempt to get collector info via a lightweight GET on /dca/dataset
+        # (an empty snapshot check is the safest way to validate access)
+        async with aiohttp.ClientSession() as session:
+            try:
+                # POST trigger with empty array — Bright Data returns 400/422 for
+                # bad input but 401/404 for auth/not-found, which is what we want
+                url = f"{self.api_url}/dca/trigger"
+                params = {"collector": collector_id}
+                async with session.post(
+                    url,
+                    json=[],
+                    headers=self.headers,
+                    params=params,
+                ) as response:
+                    # 400 / 422 = collector exists but input was empty (expected)
+                    # 401 = bad token
+                    # 404 = collector not found
+                    if response.status in (400, 422):
+                        logger.success(f"Collector {collector_id} is valid")
+                        return {"collector_id": collector_id, "status": "valid"}
+                    elif response.status == 401:
+                        raise PermissionError("Invalid Bright Data API token")
+                    elif response.status == 404:
+                        raise ValueError(
+                            f"Collector '{collector_id}' not found. "
+                            "Create a scraper in Bright Data Scraper Studio first "
+                            "and copy its collector ID (starts with c_)."
+                        )
+                    else:
+                        response.raise_for_status()
+                        return {"collector_id": collector_id, "status": "valid"}
+
+            except aiohttp.ClientError as e:
+                logger.error(f"Failed to validate collector: {e}")
+                raise
+
+    def register_scraper(
         self,
+        collector_id: str,
         name: str,
         target_urls: List[str],
         fields: List[Dict[str, Any]],
-        description: Optional[str] = None
+        description: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
-        Create a new scraper in Bright Data Scraper Studio
-        
-        Args:
-            name: Scraper name
-            target_urls: List of URLs to scrape
-            fields: Field definitions with visual descriptions
-            description: Optional scraper description
-        
-        Returns:
-            Scraper configuration with ID
+        'Create' a scraper in our system by registering a Bright Data collector_id.
+        No API call needed — the collector already exists in Bright Data.
+
+        Returns a dict that maps to our Scraper model.
         """
-        logger.info(f"Creating Bright Data scraper: {name}")
-        
-        # Build scraper configuration
-        # Using AI-powered scraper creation for self-healing
-        config = {
+        logger.info(f"Registering Bright Data collector '{collector_id}' as '{name}'")
+        return {
+            "collector_id": collector_id,
             "name": name,
-            "description": description or f"Self-healing scraper for {', '.join(target_urls[:3])}",
+            "description": description or f"Scraper for {', '.join(target_urls[:2])}",
             "target_urls": target_urls,
             "fields": self._format_fields(fields),
-            "ai_enabled": True,  # Enable AI for self-healing
-            "auto_retry": True,
-            "proxy_type": "datacenter"  # Free tier
+            "status": "ACTIVE",
         }
-        
-        async with aiohttp.ClientSession() as session:
-            try:
-                # Create scraper using Scraper Studio API
-                url = f"{self.api_url}/dca/create_collector"
-                async with session.post(url, json=config, headers=self.headers) as response:
-                    response.raise_for_status()
-                    result = await response.json()
-                    
-                    logger.success(f"Scraper created: {result.get('collector_id')}")
-                    return result
-                    
-            except aiohttp.ClientError as e:
-                logger.error(f"Failed to create scraper: {e}")
-                raise
-    
+
     def _format_fields(self, fields: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Format field definitions for Bright Data API"""
+        """Format field definitions (kept for internal use / display)"""
         formatted = []
-        
         for field in fields:
             formatted_field = {
                 "name": field["name"],
                 "type": field.get("fieldType", "text").lower(),
                 "description": field.get("description", ""),
             }
-            
-            # Add visual hints for AI-powered extraction
             if field.get("visualHints"):
                 formatted_field["visual_context"] = field["visualHints"]
-            
-            # Add selector if provided
             if field.get("selector"):
                 formatted_field["selector"] = field["selector"]
-            
             formatted.append(formatted_field)
-        
         return formatted
-    
+
+    # ── Trigger a run ─────────────────────────────────────────────────────────
+
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def trigger_scraper(
         self,
         collector_id: str,
-        urls: List[str]
+        urls: List[str],
     ) -> Dict[str, Any]:
         """
-        Trigger a scraping job
-        
-        Args:
-            collector_id: Bright Data collector ID
-            urls: URLs to scrape
-        
-        Returns:
-            Job information with job ID
+        Trigger a batch scraping job.
+
+        POST /dca/trigger?collector=<collector_id>
+        Body: [{"url": "https://..."}, ...]
+
+        Returns {"collection_id": "j_xxxx"} — use this as snapshot_id everywhere.
         """
-        logger.info(f"Triggering scraper {collector_id} for {len(urls)} URLs")
-        
+        logger.info(f"Triggering collector {collector_id} for {len(urls)} URL(s)")
+
         payload = [{"url": url} for url in urls]
-        
+
         async with aiohttp.ClientSession() as session:
             try:
                 url = f"{self.api_url}/dca/trigger"
                 params = {"collector": collector_id}
-                
+
                 async with session.post(
                     url,
                     json=payload,
                     headers=self.headers,
-                    params=params
+                    params=params,
                 ) as response:
+                    if response.status == 404:
+                        raise ValueError(
+                            f"Collector '{collector_id}' not found on Bright Data. "
+                            "Check that it's published (Active/Ready status) in Scraper Studio."
+                        )
                     response.raise_for_status()
                     result = await response.json()
-                    
-                    logger.success(f"Job triggered: {result.get('snapshot_id')}")
-                    return result
-                    
+
+                    # Bright Data returns collection_id; alias as snapshot_id for consistency
+                    collection_id = result.get("collection_id") or result.get("snapshot_id")
+                    logger.success(f"Job triggered: collection_id={collection_id}")
+                    return {"snapshot_id": collection_id, "collection_id": collection_id}
+
             except aiohttp.ClientError as e:
                 logger.error(f"Failed to trigger scraper: {e}")
                 raise
-    
+
+    # ── Job status ────────────────────────────────────────────────────────────
+
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
-    async def get_job_status(
-        self,
-        snapshot_id: str
-    ) -> Dict[str, Any]:
+    async def get_job_status(self, snapshot_id: str) -> Dict[str, Any]:
         """
-        Get status of a scraping job
-        
-        Args:
-            snapshot_id: Bright Data snapshot/job ID
-        
-        Returns:
-            Job status and progress
+        GET /dca/dataset?id=<snapshot_id>
+
+        Returns status info. When ready, also returns the data array.
         """
         async with aiohttp.ClientSession() as session:
             try:
                 url = f"{self.api_url}/dca/dataset"
                 params = {"id": snapshot_id}
-                
+
                 async with session.get(url, headers=self.headers, params=params) as response:
                     response.raise_for_status()
-                    result = await response.json()
-                    return result
-                    
+                    return await response.json()
+
             except aiohttp.ClientError as e:
                 logger.error(f"Failed to get job status: {e}")
                 raise
-    
+
+    # ── Fetch results ─────────────────────────────────────────────────────────
+
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def get_results(
-        self,
-        snapshot_id: str,
-        format: str = "json"
+        self, snapshot_id: str, format: str = "json"
     ) -> List[Dict[str, Any]]:
         """
-        Retrieve scraping results
-        
-        Args:
-            snapshot_id: Bright Data snapshot/job ID
-            format: Result format (json, csv, etc.)
-        
-        Returns:
-            List of scraped items
+        GET /dca/dataset?id=<snapshot_id>&format=json
+
+        Returns the array of scraped records.
+        Batch results are retained for 16 days.
         """
-        logger.info(f"Fetching results for job {snapshot_id}")
-        
+        logger.info(f"Fetching results for snapshot {snapshot_id}")
+
         async with aiohttp.ClientSession() as session:
             try:
                 url = f"{self.api_url}/dca/dataset"
-                params = {
-                    "id": snapshot_id,
-                    "format": format
-                }
-                
+                params = {"id": snapshot_id, "format": format}
+
                 async with session.get(url, headers=self.headers, params=params) as response:
                     response.raise_for_status()
                     results = await response.json()
-                    
-                    logger.success(f"Retrieved {len(results)} results")
-                    return results
-                    
+
+                    # Result is a list of records
+                    if isinstance(results, list):
+                        logger.success(f"Retrieved {len(results)} records")
+                        return results
+
+                    # Some responses wrap in {"data": [...]}
+                    if isinstance(results, dict) and "data" in results:
+                        data = results["data"]
+                        logger.success(f"Retrieved {len(data)} records")
+                        return data
+
+                    return []
+
             except aiohttp.ClientError as e:
                 logger.error(f"Failed to get results: {e}")
                 raise
-    
+
+    # ── Poll until done ───────────────────────────────────────────────────────
+
     async def wait_for_completion(
         self,
         snapshot_id: str,
         timeout: int = 300,
-        poll_interval: int = 5
+        poll_interval: int = 5,
     ) -> Dict[str, Any]:
-        """
-        Wait for scraping job to complete
-        
-        Args:
-            snapshot_id: Job ID
-            timeout: Maximum wait time in seconds
-            poll_interval: Polling interval in seconds
-        
-        Returns:
-            Final job status
-        """
-        logger.info(f"Waiting for job {snapshot_id} to complete...")
-        
+        """Poll until job completes or timeout."""
+        logger.info(f"Polling job {snapshot_id}...")
+
         elapsed = 0
         while elapsed < timeout:
             status = await self.get_job_status(snapshot_id)
-            
+
             job_status = status.get("status", "").lower()
-            if job_status in ["completed", "finished"]:
-                logger.success(f"Job {snapshot_id} completed successfully")
+
+            if job_status in ("completed", "finished", "ready"):
+                logger.success(f"Job {snapshot_id} completed")
                 return status
-            elif job_status in ["failed", "error"]:
+            elif job_status in ("failed", "error"):
                 logger.error(f"Job {snapshot_id} failed")
                 raise Exception(f"Job failed: {status.get('error', 'Unknown error')}")
-            
-            # Still running, wait and poll again
+
             await asyncio.sleep(poll_interval)
             elapsed += poll_interval
-            
-            if elapsed % 30 == 0:  # Log progress every 30 seconds
-                progress = status.get("progress", 0)
-                logger.info(f"Job progress: {progress}%")
-        
-        raise TimeoutError(f"Job {snapshot_id} did not complete within {timeout} seconds")
-    
+
+            if elapsed % 30 == 0:
+                progress = status.get("progress", "?")
+                logger.info(f"  job progress: {progress}%  ({elapsed}s elapsed)")
+
+        raise TimeoutError(f"Job {snapshot_id} did not complete within {timeout}s")
+
+    # ── Self-healing ──────────────────────────────────────────────────────────
+
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
-    async def update_scraper(
+    async def trigger_self_heal(
         self,
         collector_id: str,
-        fields: Optional[List[Dict[str, Any]]] = None,
-        urls: Optional[List[str]] = None
+        prompt: str = "Fix broken selectors and update the scraper to work with the current page layout",
     ) -> Dict[str, Any]:
         """
-        Update scraper configuration (for self-healing)
-        
-        Args:
-            collector_id: Scraper ID
-            fields: Updated field definitions
-            urls: Updated target URLs
-        
-        Returns:
-            Updated scraper configuration
+        Trigger Bright Data's AI Self-Healing on an existing collector.
+
+        POST /api/v1/ai/collector/<collector_id>/self_heal
+        Body: {"prompt": "..."}
+
+        Returns a job_id to poll via get_self_heal_status().
         """
-        logger.info(f"Updating scraper {collector_id}")
-        
-        update_data = {}
-        if fields:
-            update_data["fields"] = self._format_fields(fields)
-        if urls:
-            update_data["target_urls"] = urls
-        
+        logger.info(f"Triggering self-heal for collector {collector_id}")
+
         async with aiohttp.ClientSession() as session:
             try:
-                url = f"{self.api_url}/dca/collector/{collector_id}"
-                async with session.patch(url, json=update_data, headers=self.headers) as response:
+                url = f"{self.api_url}/api/v1/ai/collector/{collector_id}/self_heal"
+                async with session.post(
+                    url,
+                    json={"prompt": prompt},
+                    headers=self.headers,
+                ) as response:
+                    if response.status == 404:
+                        # Self-heal API may not be available on all plans
+                        logger.warning(
+                            "Self-heal API returned 404 — feature may not be enabled on this plan. "
+                            "Update the scraper manually in Bright Data Scraper Studio."
+                        )
+                        return {"status": "not_available", "collector_id": collector_id}
                     response.raise_for_status()
                     result = await response.json()
-                    
-                    logger.success(f"Scraper updated: {collector_id}")
+                    logger.success(f"Self-heal job started: {result}")
                     return result
-                    
+
             except aiohttp.ClientError as e:
-                logger.error(f"Failed to update scraper: {e}")
+                logger.error(f"Failed to trigger self-heal: {e}")
                 raise
-    
-    async def enable_self_healing(
-        self,
-        collector_id: str
-    ) -> Dict[str, Any]:
-        """
-        Enable AI-powered self-healing for a scraper
-        
-        Args:
-            collector_id: Scraper ID
-        
-        Returns:
-            Updated configuration
-        """
-        logger.info(f"Enabling self-healing for {collector_id}")
-        
-        return await self.update_scraper(
-            collector_id,
-            # Enable AI and auto-retry features
-            # These will be passed as part of the configuration
-        )
 
 
 # Global service instance

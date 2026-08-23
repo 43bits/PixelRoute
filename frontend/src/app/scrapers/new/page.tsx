@@ -22,6 +22,7 @@ export default function NewScraperPage() {
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [collectorId, setCollectorId] = useState('');
   const [urlInput, setUrlInput] = useState('');
   const [targetUrls, setTargetUrls] = useState<string[]>([]);
   const [autoHeal, setAutoHeal] = useState(true);
@@ -84,6 +85,7 @@ export default function NewScraperPage() {
       targetUrls,
       fields,
       autoHeal,
+      collectorId: collectorId.trim() || undefined,
     });
   };
 
@@ -159,6 +161,34 @@ export default function NewScraperPage() {
                 <label htmlFor="autoHeal" className="text-sm text-gray-700">
                   Enable auto-healing (scraper adapts when the site changes)
                 </label>
+              </div>
+
+              {/* Bright Data Collector ID */}
+              <div className="border-t border-gray-100 pt-4">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Bright Data Collector ID
+                  <span className="ml-2 text-xs font-normal text-gray-400">(optional — add later if needed)</span>
+                </label>
+                <input
+                  type="text"
+                  value={collectorId}
+                  onChange={(e) => setCollectorId(e.target.value)}
+                  placeholder="c_xxxxxxxxxxxxxxxx"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none font-mono text-sm"
+                />
+                <p className="text-xs text-gray-400 mt-1">
+                  Create a scraper in{' '}
+                  <a
+                    href="https://brightdata.com/cp/scrapers"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-primary-600 hover:underline"
+                  >
+                    Bright Data Scraper Studio
+                  </a>
+                  , publish it, then paste the collector ID here.
+                  Without it the scraper is saved as <strong>DRAFT</strong> and cannot be run yet.
+                </p>
               </div>
             </div>
           </section>
